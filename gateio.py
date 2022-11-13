@@ -67,8 +67,8 @@ def list_tickers(run_config):
 
 
 # init
-api_key = "94124f7b0d62ff172142a69703a41daa" #os.environ.get('gateio_api_key')
-api_secret = "d63e4593776f9ee30749efcc79ce89c6ccf39b30904e101de6a9ca3d04f0c4ef" #os.environ.get('gateio_secret_key')
+api_key = "" #os.environ.get('gateio_api_key')
+api_secret = "" #os.environ.get('gateio_secret_key')
 host_used = "https://api.gateio.ws/api/v4"
 
 #print(api_key)
