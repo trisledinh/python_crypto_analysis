@@ -9,16 +9,16 @@ python3 -V
 --step 3:
 sudo apt install -y python3-pip
 
---step 4:
-sudo apt install -y build-essential libssl-dev libffi-dev python3-dev
---step 5:
-sudo apt install -y python3-venv
---step 6:
-mkdir environments
---step 7:
-cd environments
-python3 -m venv my_env
-source my_env/bin/activate
+--step 4:  
+sudo apt install -y build-essential libssl-dev libffi-dev python3-dev  
+--step 5:  
+sudo apt install -y python3-venv  
+--step 6:  
+mkdir environments  
+--step 7:  
+cd environments  
+python3 -m venv my_env  
+source my_env/bin/activate  
 
 
 ------------------------------------------------
