@@ -38,31 +38,31 @@ INSTALL MONGODB
 
 1. Open your WSL terminal (ie. Ubuntu) and go to your home directory: cd ~
 2. Update your Ubuntu packages: sudo apt update
-3. Import the public key used by the MongoDB package management system: 
-wget -qO - https://www.mongodb.org/static/pgp/server-5.0.asc | sudo apt-key add -
---Create a list file for MongoDB: 
-echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
-4. Reload local package database: sudo apt-get update
-5. Install MongoDB packages: sudo apt-get install -y mongodb-org
-6. Confirm installation and get the version number: mongod --version
-7. Make a directory to store data: mkdir -p ~/data/db
-8. Run a Mongo instance: sudo mongod --dbpath ~/data/db
-9. Check to see that your MongoDB instance is running with: ps -e | grep 'mongod'
-10. To exit the MongoDB Shell, use the shortcut keys: Ctrl + C
+3. Import the public key used by the MongoDB package management system:   
+wget -qO - https://www.mongodb.org/static/pgp/server-5.0.asc | sudo apt-key add -  
+--Create a list file for MongoDB:   
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/ mongodb-org-5.0.list
+4. Reload local package database: sudo apt-get update  
+5. Install MongoDB packages: sudo apt-get install -y mongodb-org  
+6. Confirm installation and get the version number: mongod --version  
+7. Make a directory to store data: mkdir -p ~/data/db  
+8. Run a Mongo instance: sudo mongod --dbpath ~/data/db  
+9. Check to see that your MongoDB instance is running with: ps -e | grep 'mongod'  
+10. To exit the MongoDB Shell, use the shortcut keys: Ctrl + C  
 
-#Setup Service MongoDB for WSL2
-curl https://raw.githubusercontent.com/mongodb/mongo/master/debian/init.d | sudo tee /etc/init.d/mongodb >/dev/null
+#Setup Service MongoDB for WSL2  
+curl https://raw.githubusercontent.com/mongodb/mongo/master/debian/init.d | sudo tee /etc/init.d/mongodb >/dev/null  
 
-sudo chmod +x /etc/init.d/mongodb
+sudo chmod +x /etc/init.d/mongodb  
 
-sudo service mongodb status
+sudo service mongodb status  
 
-sudo service mongodb start
+sudo service mongodb start  
 
-sudo service mongodb stop
+sudo service mongodb stop  
 
---Connection String
-mongodb://localhost:27018
+--Connection String  
+mongodb://localhost:27018  
 
 # Add Github
 
