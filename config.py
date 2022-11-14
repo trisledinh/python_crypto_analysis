@@ -1,7 +1,7 @@
 # !/usr/bin/env python
 # coding: utf-8
-
-from urllib.parse import urlparse
+import six
+from six.moves.urllib.parse import urlparse
 
 
 class RunConfig(object):

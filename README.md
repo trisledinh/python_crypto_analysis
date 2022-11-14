@@ -1,11 +1,14 @@
 # python_crypto_analysis
 --step 1:
 sudo apt update
+
 --step 2:
 sudo apt -y upgrade
 python3 -V
+
 --step 3:
 sudo apt install -y python3-pip
+
 --step 4:
 sudo apt install -y build-essential libssl-dev libffi-dev python3-dev
 --step 5:
@@ -63,28 +66,30 @@ mongodb://localhost:27018
 
 # Add Github
 
-echo "# python_crypto_analysis" >> README.md
-git init
-git add README.md
-git commit -m "first commit"
-git branch -M main
-git remote add origin https://access_token@github.com/trisledinh/python_crypto_analysis.git 
-https://github.com/trisledinh/python_crypto_analysis.git
+echo "# python_crypto_analysis" >> README.md  
+git init  
+git add README.md  
+git commit -m "first commit"  
+git branch -M main  
+git remote add origin https://access_token@github.com/trisledinh/python_crypto_analysis.git   
+https://github.com/trisledinh/python_crypto_analysis.git  
 
 
 --------------------------------------------------------------
 --- INSTALL Python package------------------------------------
 
-pip install python-binance
-pip install investpy
-pip install tensorflow
-pip install numpy
-pip install pandas
-pip install matplotlib
-pip install seaborn
-pip install pymongo
+pip install python-binance  
+pip install investpy  
+pip install tensorflow  
+pip install numpy  
+pip install pandas  
+pip install matplotlib  
+pip install seaborn  
+pip install pymongo  
 
-----CRONTAB -------------------------------------------------------------------------------------------------------
+pip install --user gate-api  
+
+----CRONTAB ------------------------------------------------------------------------------------------------------  
 */5 * * * * /usr/bin/python3 /home/trild/environments/my_env/crypto/run_sync_data.py >> /home/trild/cron.log 2>&1
 
 
