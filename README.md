@@ -88,6 +88,7 @@ pip install seaborn
 pip install pymongo  
 
 pip install --user gate-api  
+pip install --user gate-ws  
 
 ----CRONTAB ------------------------------------------------------------------------------------------------------  
 */5 * * * * /usr/bin/python3 /home/trild/environments/my_env/crypto/run_sync_data.py >> /home/trild/cron.log 2>&1
