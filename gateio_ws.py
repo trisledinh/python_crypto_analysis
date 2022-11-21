@@ -29,7 +29,7 @@ async def main():
 
     # subscribe to any channel you are interested into, with the callback function
     channel = SpotPublicTradeChannel(conn, print_message)
-    channel.subscribe(["TRX_USDT"])
+    channel.subscribe(["TRX_USDT", "BTC_USDT"])
 
     # start the client
     await conn.run()
