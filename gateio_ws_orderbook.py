@@ -9,6 +9,8 @@ import typing
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
+from pymongo import MongoClient
+from dotenv import dotenv_values
 
 try:
     import aiohttp
@@ -23,9 +25,10 @@ except ImportError:
     sys.exit(1)
 
 from gate_ws import Configuration, Connection, WebSocketResponse
-from gate_ws.spot import SpotOrderBookUpdateChannel
+from gate_ws.spot import SpotOrderBookUpdateChannel, SpotOrderBookChannel
 
 logger = logging.getLogger(__name__)
+config = dotenv_values(".env")
 
 
 class SimpleRingBuffer(object):
@@ -104,6 +107,9 @@ class OrderBook(object):
         self.id = last_id
         self.asks = asks
         self.bids = bids
+        self.order_val_usd = config["order_val_usd"]
+
+        print( self.order_val_usd)
 
     @classmethod
     def update_entry(cls, book: SortedList, entry: OrderBookEntry):
@@ -160,6 +166,8 @@ class LocalOrderBook(object):
         self.buf = SimpleRingBuffer(size=500)
         self.ob = OrderBook(self.cp, 0, SortedList(), SortedList())
 
+        self.db = DBManager("localhost", 27018, "", "", "trady")
+
     @property
     def id(self):
         return self.ob.id
@@ -208,10 +216,22 @@ class LocalOrderBook(object):
                 result = await self.q.get()
                 try:
                     self.ob.update(result)
+                    print("ASK:", self.ob.asks[0], self.ob.asks[1], self.ob.asks[2], self.ob.asks[3], self.ob.asks[4])
+                    
+                    records = []
+                    for ask in self.ob.asks:
+                        records.append({ "Type": "Sell", "Price": str(ask.price), "Amount": str(ask.amount)})
+                    
+                    self.db.insert_many("OrderBook", records)
+                    print("BID:", self.ob.bids[0], self.ob.bids[1], self.ob.bids[2], self.ob.bids[3], self.ob.bids[4])
+
+                    print("----")
                 except ValueError as e:
                     logger.error("failed to update: %s", e)
                     # reconstruct order book
                     break
+
+            # print("#%02d", self.ob.asks[0])
 
     def _cache_update(self, ws_update):
         if len(self.buf) > 0:
@@ -237,8 +257,83 @@ class LocalOrderBook(object):
         assert isinstance(result, dict)
         self._cache_update(result)
         await self.q.put(result)
+    
+    async def print_order(self):
+        if (self.ob != None and self.ob.asks._len > 0):
+            print("#%02d", self.ob.asks[0])
 
+class DBManager():
+    def __init__(self, host, port, username, password, dbName) -> None:
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.dbName = dbName
 
+        if username and password:
+            mongo_uri = 'mongodb://%s:%s@%s:%s/%s' % (username, password, host, port, dbName)
+            conn = MongoClient(mongo_uri)
+        else:
+            conn = MongoClient(host, port)
+
+        self.db = conn[dbName]
+
+    def connect_mongodb(self, host, port, username, password, dbName):
+        """ A util for making a connection to mongo """
+
+        if username and password:
+            mongo_uri = 'mongodb://%s:%s@%s:%s/%s' % (username, password, host, port, dbName)
+            conn = MongoClient(mongo_uri)
+        else:
+            conn = MongoClient(host, port)
+
+        return conn[dbName]
+
+    def delete_one(self, collection, query={}):
+        db = self.db 
+        """ self.connect_mongodb("localhost", 27018, "", "", "trady") """
+        #query = {"Name": { "$regex": 'USDT$' }}
+        mycol  = db[collection]
+        x = mycol.delete_one(query)
+        
+        return x
+
+    def delete_many(self, collection, query={}):
+        db = self.db  
+        # self.connect_mongodb("localhost", 27018, "", "", "trady")
+        #query = {"Name": { "$regex": 'USDT$' }}
+        mycol  = db[collection]
+        x = mycol.delete_many(query)
+    
+        return x
+
+    def insert_one(self, collection, record):
+        db = self.db 
+        #  self.connect_mongodb("localhost", 27018, "", "", "trady")
+        #record = {"PAIR": "TRX_USDT", "PRICE": "0.05202", "AMOUNT": "9199"}
+        mycol  = db[collection]
+        x = mycol.insert_one(record)
+
+        return x
+
+    def insert_many(self, collection, records):
+        db = self.db 
+        # self.connect_mongodb("localhost", 27018, "", "", "trady")
+        mycol  = db[collection]
+        x = mycol.insert_many(records)
+
+        return x
+    def read_collection(self, collection, query={}):
+        """ Read from Mongo and Store into DataFrame """
+        "Default: localhost, port: 27018"
+        # Make a query to the specific DB and Collection
+        cursor = self.db[collection].find(query)
+
+        # Expand the cursor and construct the DataFrame
+        df =  list(cursor)
+
+        return df
+    
 class OrderBookFrame(Frame):
     def __init__(self, screen, order_book: LocalOrderBook):
         super(OrderBookFrame, self).__init__(screen,
@@ -319,6 +414,8 @@ async def play_order_book(screen: Screen):
         screen.draw_next_frame()
         await asyncio.sleep(0.05)
 
+# async def check_order_book():
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.ERROR, format="%(asctime)s: %(message)s")
@@ -326,7 +423,7 @@ if __name__ == '__main__':
     demo_cp = 'TRX_USDT'
     order_book = LocalOrderBook(demo_cp)
     channel = SpotOrderBookUpdateChannel(conn, order_book.ws_callback)
-    channel.subscribe([demo_cp, "100ms"])
+    channel.subscribe([demo_cp, "1000ms"])
 
     loop = asyncio.get_event_loop()
 
@@ -334,11 +431,12 @@ if __name__ == '__main__':
     # screen.set_scenes([Scene([OrderBookFrame(screen, order_book)], -1)])
     loop.create_task(order_book.run())
     loop.create_task(conn.run())
+    # loop.create_task(order_book.print_order())
     # loop.create_task(play_order_book(screen))
     try:
         loop.run_forever()
     except KeyboardInterrupt:
         for task in asyncio.Task.all_tasks(loop):
             task.cancel()
-        # screen.close()
+        #  screen.close()
         loop.close()
