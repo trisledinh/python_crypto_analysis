@@ -5,11 +5,13 @@ import asyncio
 import itertools
 import logging
 import sys
+import os
 import typing
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
-from pymongo import MongoClient
+import math
+
 from dotenv import dotenv_values
 
 try:
@@ -27,9 +29,18 @@ except ImportError:
 from gate_ws import Configuration, Connection, WebSocketResponse
 from gate_ws.spot import SpotOrderBookUpdateChannel, SpotOrderBookChannel
 
+from config import RunConfig
+from gateio import get_pair
+from db_manager import DBManager
+
 logger = logging.getLogger(__name__)
 config = dotenv_values(".env")
 
+order_val_usd = Decimal(config["order_val_usd"])
+
+print(order_val_usd)
+currency_pair = {}
+fee = 0
 
 class SimpleRingBuffer(object):
     """Simple ring buffer to cache order book updates
@@ -107,9 +118,7 @@ class OrderBook(object):
         self.id = last_id
         self.asks = asks
         self.bids = bids
-        self.order_val_usd = config["order_val_usd"]
-
-        print( self.order_val_usd)
+       
 
     @classmethod
     def update_entry(cls, book: SortedList, entry: OrderBookEntry):
@@ -218,11 +227,31 @@ class LocalOrderBook(object):
                     self.ob.update(result)
                     print("ASK:", self.ob.asks[0], self.ob.asks[1], self.ob.asks[2], self.ob.asks[3], self.ob.asks[4])
                     
-                    records = []
+                    total_val = 0
+                    total_amount = 0
+                    ask_price = 0
                     for ask in self.ob.asks:
-                        records.append({ "Type": "Sell", "Price": str(ask.price), "Amount": str(ask.amount)})
+                        ask_val = Decimal(ask.price) * Decimal(ask.amount) * (1+ fee*Decimal(0.01))
+                        ask_price = Decimal(ask.price)
+                        if (total_val + ask_val > order_val_usd):
+                            ask_amount = math.ceil((order_val_usd - total_val) / ask_price / (1+fee*Decimal(0.01)))
+                            total_amount += ask_amount
+                            break
+                        else:
+                            total_amount += Decimal(ask.amount)
+                            total_val += ask_val
                     
-                    self.db.insert_many("OrderBook", records)
+                        # records.append({ "Type": "Sell", "Price": str(ask.price), "Amount": str(ask.amount)})
+
+                    print("ASK:", ask_price, total_amount)
+                    record = { "Type": "buy", "Pair": currency_pair.id, "Price": str(ask_price), "Amount": str(total_amount)}
+
+                    query = {"Type": "buy"}
+
+                    self.db.delete_many("OrderBook", query)
+                    self.db.insert_one("OrderBook", record)
+
+                    # self.db.insert_many("OrderBook", records)
                     print("BID:", self.ob.bids[0], self.ob.bids[1], self.ob.bids[2], self.ob.bids[3], self.ob.bids[4])
 
                     print("----")
@@ -262,177 +291,27 @@ class LocalOrderBook(object):
         if (self.ob != None and self.ob.asks._len > 0):
             print("#%02d", self.ob.asks[0])
 
-class DBManager():
-    def __init__(self, host, port, username, password, dbName) -> None:
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self.dbName = dbName
-
-        if username and password:
-            mongo_uri = 'mongodb://%s:%s@%s:%s/%s' % (username, password, host, port, dbName)
-            conn = MongoClient(mongo_uri)
-        else:
-            conn = MongoClient(host, port)
-
-        self.db = conn[dbName]
-
-    def connect_mongodb(self, host, port, username, password, dbName):
-        """ A util for making a connection to mongo """
-
-        if username and password:
-            mongo_uri = 'mongodb://%s:%s@%s:%s/%s' % (username, password, host, port, dbName)
-            conn = MongoClient(mongo_uri)
-        else:
-            conn = MongoClient(host, port)
-
-        return conn[dbName]
-
-    def delete_one(self, collection, query={}):
-        db = self.db 
-        """ self.connect_mongodb("localhost", 27018, "", "", "trady") """
-        #query = {"Name": { "$regex": 'USDT$' }}
-        mycol  = db[collection]
-        x = mycol.delete_one(query)
-        
-        return x
-
-    def delete_many(self, collection, query={}):
-        db = self.db  
-        # self.connect_mongodb("localhost", 27018, "", "", "trady")
-        #query = {"Name": { "$regex": 'USDT$' }}
-        mycol  = db[collection]
-        x = mycol.delete_many(query)
-    
-        return x
-
-    def insert_one(self, collection, record):
-        db = self.db 
-        #  self.connect_mongodb("localhost", 27018, "", "", "trady")
-        #record = {"PAIR": "TRX_USDT", "PRICE": "0.05202", "AMOUNT": "9199"}
-        mycol  = db[collection]
-        x = mycol.insert_one(record)
-
-        return x
-
-    def insert_many(self, collection, records):
-        db = self.db 
-        # self.connect_mongodb("localhost", 27018, "", "", "trady")
-        mycol  = db[collection]
-        x = mycol.insert_many(records)
-
-        return x
-    def read_collection(self, collection, query={}):
-        """ Read from Mongo and Store into DataFrame """
-        "Default: localhost, port: 27018"
-        # Make a query to the specific DB and Collection
-        cursor = self.db[collection].find(query)
-
-        # Expand the cursor and construct the DataFrame
-        df =  list(cursor)
-
-        return df
-    
-class OrderBookFrame(Frame):
-    def __init__(self, screen, order_book: LocalOrderBook):
-        super(OrderBookFrame, self).__init__(screen,
-                                             screen.height,
-                                             screen.width,
-                                             has_border=False,
-                                             name="Order Book")
-        # Internal state required for doing periodic updates
-        self._last_frame = 0
-        self._ob = order_book
-        self._level = screen.height // 2 - 1
-
-        # Create the basic form layout...
-        layout = Layout([1], fill_frame=True)
-        self._header = TextBox(1, as_string=True)
-        self._header.disabled = True
-        self._header.custom_colour = "label"
-        self._asks = MultiColumnListBox(
-            screen.height // 2,
-            ["<25%", "<25%", "<25%"],
-            [],
-            titles=["Level", "Price", "Amount"],
-            name="ask_book",
-            parser=AsciimaticsParser())
-        self._bids = MultiColumnListBox(
-            screen.height // 2,
-            ["<25%", "<25%", "<25%"],
-            [],
-            titles=["Level", "Price", "Amount"],
-            name="bid_book",
-            parser=AsciimaticsParser())
-        self.add_layout(layout)
-        layout.add_widget(self._header)
-        layout.add_widget(self._asks)
-        layout.add_widget(self._bids)
-        self.fix()
-
-        # Add my own colour palette
-        self.palette = defaultdict(
-            lambda: (Screen.COLOUR_WHITE, Screen.A_NORMAL, Screen.COLOUR_BLACK))
-        for key in ["selected_focus_field", "label"]:
-            self.palette[key] = (Screen.COLOUR_WHITE, Screen.A_BOLD, Screen.COLOUR_BLACK)
-        self.palette["title"] = (Screen.COLOUR_BLACK, Screen.A_NORMAL, Screen.COLOUR_WHITE)
-
-    def _update(self, frame_no):
-        # Refresh the list view if needed
-        if frame_no - self._last_frame >= self.frame_update_count or self._last_frame == 0:
-            self._last_frame = frame_no
-
-            # Create the data to go in the multi-column list
-            ask_data = [
-                (["#%02d" % (self._level - i), str(x.price), x.amount], i)
-                for i, x in enumerate(reversed(self._ob.asks[:self._level]))
-            ]
-            bid_data = [
-                (["#%02d" % (i + 1), str(x.price), x.amount], i) for i, x in enumerate(self._ob.bids[:self._level])
-            ]
-            self._asks.options = ask_data
-            self._bids.options = bid_data
-            self._header.value = (
-                "Currency Pair: {}   Time: {}".format(
-                    'BTC_USDT',
-                    datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S.%f%z")
-                )
-            )
-
-        # Now redraw as normal
-        super(OrderBookFrame, self)._update(frame_no)
-
-    @property
-    def frame_update_count(self):
-        # Refresh once every 0.5 seconds
-        return 10
-
-
-async def play_order_book(screen: Screen):
-    while True:
-        screen.draw_next_frame()
-        await asyncio.sleep(0.05)
-
-# async def check_order_book():
-
-
 if __name__ == '__main__':
     logging.basicConfig(level=logging.ERROR, format="%(asctime)s: %(message)s")
     conn = Connection(Configuration())
     demo_cp = 'TRX_USDT'
+
     order_book = LocalOrderBook(demo_cp)
     channel = SpotOrderBookUpdateChannel(conn, order_book.ws_callback)
     channel.subscribe([demo_cp, "1000ms"])
 
+    api_key = os.environ.get('gateio_api_key')
+    api_secret = os.environ.get('gateio_secret_key')
+    host_used = "https://api.gateio.ws/api/v4"
+
+    run_config = RunConfig(api_key, api_secret, host_used)
+    currency_pair = get_pair(run_config, demo_cp)
+    fee = Decimal(currency_pair.fee)
     loop = asyncio.get_event_loop()
 
-    # screen = Screen.open()
-    # screen.set_scenes([Scene([OrderBookFrame(screen, order_book)], -1)])
     loop.create_task(order_book.run())
     loop.create_task(conn.run())
-    # loop.create_task(order_book.print_order())
-    # loop.create_task(play_order_book(screen))
+
     try:
         loop.run_forever()
     except KeyboardInterrupt:

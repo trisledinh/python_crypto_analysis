@@ -109,6 +109,14 @@ def list_tickers(run_config):
     except ApiException as e:
         print("Exception when calling SpotApi->list_currency_pairs: %s\n" % e)
 
+def get_pair(run_config, currency_pair):
+    config = Configuration(
+        key=run_config.api_key, secret=run_config.api_secret, host=run_config.host_used)
+
+    spot_api = SpotApi(ApiClient(config))
+    pair = spot_api.get_currency_pair(currency_pair)
+
+    return pair
 
 def list_order_book(run_config, currency_pair):
     config = Configuration(
