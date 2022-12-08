@@ -8,8 +8,67 @@ from gate_api import ApiClient, Configuration, Order, SpotApi, OrderBook
 from gate_api.exceptions import ApiException, GateApiException
 
 from config import RunConfig
+from db_manager import DBManager
 
 logger = logging.getLogger(__name__)
+
+def create_order(run_config):
+    config = Configuration(
+        key=run_config.api_key, secret=run_config.api_secret, host=run_config.host_used)
+
+    spot_api = SpotApi(ApiClient(config))
+
+    db = DBManager("localhost", 27018, "", "", "trady")
+    query = {"Type": "buy", "Status": "0"}
+
+    order_wait = db.read_one("OrderBook", query)
+
+    print(order_wait["Pair"])
+    ask_pair = order_wait["Pair"]
+    ask_side = order_wait["Type"]
+    ask_amount = D(order_wait["Amount"])
+    ask_price = D(order_wait["Price"])
+
+    order = Order(currency_pair=ask_pair, side=ask_side,
+                  amount=ask_amount, price=ask_price)  # Order |
+
+    currency = ask_pair.split("_")[1]
+    # print(order)
+    try:
+        # List orders
+        accounts = spot_api.list_spot_accounts(currency=currency)
+        assert len(accounts) == 1
+        available = D(accounts[0].available)
+        logger.info("Account available: %s %s", str(available), currency)
+        if available < ask_amount:
+            logger.error("Account balance not enough")
+            return
+        # Create an order
+        orderResult = spot_api.create_order(order)
+        print(orderResult)
+        logger.info("order created with id %s, status %s",
+                orderResult.id, orderResult.status)
+
+        if orderResult.status == 'open':
+            order_result = spot_api.get_order(orderResult.id, ask_pair)
+            logger.info("order %s filled %s, left: %s", order_result.id,
+                        order_result.filled_total, order_result.left)
+            result = spot_api.cancel_order(order_result.id, ask_pair)
+            if result.status == 'cancelled':
+                logger.info("order %s cancelled", result.id)
+        else:
+            trades = spot_api.list_my_trades(ask_pair, order_id=orderResult.id)
+            assert len(trades) > 0
+            for t in trades:
+                logger.info("order %s filled %s with price %s",
+                            t.order_id, t.amount, t.price)
+
+        return orderResult
+    except GateApiException as ex:
+        print("Gate api exception, label: %s, message: %s\n" %
+              (ex.label, ex.message))
+    except ApiException as e:
+        print("Exception when calling SpotApi->list_order_book: %s\n" % e)
 
 
 def spot_demo_order(run_config):
@@ -190,29 +249,6 @@ def list_orders(run_config, currency_pair):
         print("Exception when calling SpotApi->list_order_book: %s\n" % e)
 
 
-def create_order(run_config):
-    config = Configuration(
-        key=run_config.api_key, secret=run_config.api_secret, host=run_config.host_used)
-
-    spot_api = SpotApi(ApiClient(config))
-    order = Order(currency_pair='TRX_USDT', side='buy',
-                  amount=0.001, price=0.00001)  # Order |
-
-    print(order)
-    try:
-        # List orders
-        #orders = spot_api.list_all_open_orders(page=page, limit=limit, account=account)
-
-        # Create an order
-        orderResult = spot_api.create_order(order)
-        print(orderResult)
-
-        return order
-    except GateApiException as ex:
-        print("Gate api exception, label: %s, message: %s\n" %
-              (ex.label, ex.message))
-    except ApiException as e:
-        print("Exception when calling SpotApi->list_order_book: %s\n" % e)
 
 def main() -> None:
     # init
@@ -224,7 +260,7 @@ def main() -> None:
     # print(api_secret)
     run_config = RunConfig(api_key, api_secret, host_used)
 
-    spot_demo_order(run_config)
+    create_order(run_config)
 
 if __name__ == '__main__':
     main()

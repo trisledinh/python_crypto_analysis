@@ -227,38 +227,41 @@ class LocalOrderBook(object):
                     self.ob.update(result)
                     print("ASK:", self.ob.asks[0], self.ob.asks[1], self.ob.asks[2], self.ob.asks[3], self.ob.asks[4])
                     
-                    total_val = 0
-                    total_amount = 0
-                    ask_price = 0
-                    for ask in self.ob.asks:
-                        ask_val = Decimal(ask.price) * Decimal(ask.amount) * (1+ fee*Decimal(0.01))
-                        ask_price = Decimal(ask.price)
-                        if (total_val + ask_val > order_val_usd):
-                            ask_amount = math.ceil((order_val_usd - total_val) / ask_price / (1+fee*Decimal(0.01)))
-                            total_amount += ask_amount
-                            break
-                        else:
-                            total_amount += Decimal(ask.amount)
-                            total_val += ask_val
-                    
-                        # records.append({ "Type": "Sell", "Price": str(ask.price), "Amount": str(ask.amount)})
-
-                    print("ASK:", ask_price, total_amount)
-                    record = { "Type": "buy", "Pair": currency_pair.id, "Price": str(ask_price), "Amount": str(total_amount)}
-
-                    query = {"Type": "buy"}
-
-                    self.db.delete_many("OrderBook", query)
-                    self.db.insert_one("OrderBook", record)
-
-                    # self.db.insert_many("OrderBook", records)
-                    print("BID:", self.ob.bids[0], self.ob.bids[1], self.ob.bids[2], self.ob.bids[3], self.ob.bids[4])
-
-                    print("----")
+                    self.update_db()
                 except ValueError as e:
                     logger.error("failed to update: %s", e)
                     # reconstruct order book
                     break
+
+    def update_db(self):
+        total_val = 0
+        total_amount = 0
+        ask_price = 0
+        for ask in self.ob.asks:
+            ask_val = Decimal(ask.price) * Decimal(ask.amount) * (1+ fee*Decimal(0.01))
+            ask_price = Decimal(ask.price)
+            if (total_val + ask_val > order_val_usd):
+                ask_amount = math.ceil((order_val_usd - total_val) / ask_price / (1+fee*Decimal(0.01)))
+                total_amount += ask_amount
+                break
+            else:
+                total_amount += Decimal(ask.amount)
+                total_val += ask_val
+                    
+                        # records.append({ "Type": "Sell", "Price": str(ask.price), "Amount": str(ask.amount)})
+
+        print("ASK:", ask_price, total_amount)
+        record = { "Type": "buy", "Pair": currency_pair.id, "Price": str(ask_price), "Amount": str(total_amount), "Status": "0"}
+
+        query = {"Type": "buy", "Status": "0"}
+
+        self.db.delete_many("OrderBook", query)
+        self.db.insert_one("OrderBook", record)
+
+                    # self.db.insert_many("OrderBook", records)
+        print("BID:", self.ob.bids[0], self.ob.bids[1], self.ob.bids[2], self.ob.bids[3], self.ob.bids[4])
+
+        print("----")
 
             # print("#%02d", self.ob.asks[0])
 

@@ -61,6 +61,15 @@ class DBManager():
         x = mycol.insert_many(records)
 
         return x
+
+    def read_one(self, collection, query={}):
+        """ Read from Mongo and Store into DataFrame """
+        "Default: localhost, port: 27018"
+        # Make a query to the specific DB and Collection
+        cursor = self.db[collection].find_one(query)
+
+        return cursor
+
     def read_collection(self, collection, query={}):
         """ Read from Mongo and Store into DataFrame """
         "Default: localhost, port: 27018"
