@@ -61,6 +61,20 @@ class DBManager():
         x = mycol.insert_many(records)
 
         return x
+    
+    def update_one(self, collection, filter={}, newvalues={}):
+        """ Read from Mongo and Store into DataFrame """
+        "Default: localhost, port: 27018"
+        # Make a query to the specific DB and Collection
+        collection = self.db[collection]
+
+        collection.update_one(filter, newvalues)
+        
+        # Printing the updated content of the
+        # database
+        cursor = collection.find_one(filter)
+
+        return cursor
 
     def read_one(self, collection, query={}):
         """ Read from Mongo and Store into DataFrame """

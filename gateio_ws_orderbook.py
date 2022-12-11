@@ -30,7 +30,8 @@ from gate_ws import Configuration, Connection, WebSocketResponse
 from gate_ws.spot import SpotOrderBookUpdateChannel, SpotOrderBookChannel
 
 from config import RunConfig
-from gateio import get_pair
+# from gateio import get_pair
+from gateio import GateOrder
 from db_manager import DBManager
 
 logger = logging.getLogger(__name__)
@@ -308,7 +309,10 @@ if __name__ == '__main__':
     host_used = "https://api.gateio.ws/api/v4"
 
     run_config = RunConfig(api_key, api_secret, host_used)
-    currency_pair = get_pair(run_config, demo_cp)
+    gate_order = GateOrder(run_config)
+
+    currency_pair = gate_order.get_pair(demo_cp)
+
     fee = Decimal(currency_pair.fee)
     loop = asyncio.get_event_loop()
 
