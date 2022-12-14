@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 class GateOrder(object):
     def __init__(self, run_config):
+        
+        config = Configuration(
+                key=self.run_config.api_key, secret=self.run_config.api_secret, host=self.run_config.host_used)
+
+        self.spot_api = SpotApi(ApiClient(config))
         self.run_config = run_config
         self.db = DBManager("localhost", 27018, "", "", "trady")
         self.order_ids = []
@@ -24,10 +29,9 @@ class GateOrder(object):
         while True:
             await asyncio.sleep(5)
             
-            db = self.db
             query = {"Type": "buy", "Status": "0"}
 
-            order_wait = db.read_one("OrderBook", query)
+            order_wait = self.db.read_one("OrderBook", query)
 
             if order_wait is not None:
 
@@ -37,19 +41,14 @@ class GateOrder(object):
                 ask_amount = D(order_wait["Amount"])
                 ask_price = D(order_wait["Price"])
 
-                self.update_order_status(db)
-
-                config = Configuration(
-                key=self.run_config.api_key, secret=self.run_config.api_secret, host=self.run_config.host_used)
-
-                spot_api = SpotApi(ApiClient(config))
+                # self.update_order_status(db, "0")
 
                 order = Order(currency_pair=ask_pair, side=ask_side,
                             amount=ask_amount, price=ask_price)  # Order |
 
                 currency = ask_pair.split("_")[1]
                 try:
-                    accounts = spot_api.list_spot_accounts(currency=currency)
+                    accounts = self.spot_api.list_spot_accounts(currency=currency)
                     assert len(accounts) == 1
                     available = D(accounts[0].available)
                     logger.info("Account available: %s %s", str(available), currency)
@@ -57,7 +56,7 @@ class GateOrder(object):
                         logger.error("Account balance not enough")
                         return
                     # Create an order
-                    orderResult = spot_api.create_order(order)
+                    orderResult = self.spot_api.create_order(order)
                     print(orderResult)
                     logger.info("order created with id %s, status %s",
                             orderResult.id, orderResult.status)
@@ -65,16 +64,16 @@ class GateOrder(object):
                     if orderResult.status == 'open':
                         self.order_ids.append({"Id": orderResult.id, "Status": orderResult.status, "Pair": ask_pair})
 
-                        self.update_order_status(db)
+                        self.update_order_id(order_wait._id, orderResult.id)
 
-                        order_result = spot_api.get_order(orderResult.id, ask_pair)
+                        order_result = self.spot_api.get_order(orderResult.id, ask_pair)
                         logger.info("order %s filled %s, left: %s", order_result.id,
                                     order_result.filled_total, order_result.left)
-                        result = spot_api.cancel_order(order_result.id, ask_pair)
+                        result = self.spot_api.cancel_order(order_result.id, ask_pair)
                         if result.status == 'cancelled':
                             logger.info("order %s cancelled", result.id)
                     else:
-                        trades = spot_api.list_my_trades(ask_pair, order_id=orderResult.id)
+                        trades = self.spot_api.list_my_trades(ask_pair, order_id=orderResult.id)
                         assert len(trades) > 0
                         for t in trades:
                             logger.info("order %s filled %s with price %s",
@@ -89,84 +88,53 @@ class GateOrder(object):
                     print("Exception when calling SpotApi->list_order_book: %s\n" % e)
                     break
 
-    def update_order_status(self, db):
-        filter = {"Type": "buy", "Status": "0"}
+    async def check_order_status(self):
+        while True:
+            await asyncio.sleep(1)
+            
+            try:
+
+                query = {"Type": "buy", "Status": "1"}
+                # ord = self.db.read_one("OrderBook", query)
+
+                for ord in self.order_ids:
+                    ord_result = self.spot_api.get_order(ord.id, ord.Pair)
+
+                    logger.info("order %s filled %s, left: %s", ord_result.id,
+                                            ord_result.filled_total, ord_result.left)
+                    
+                    if (ord_result.left == 0):
+                        self.update_order_status(ord.id, "2")
+            except GateApiException as ex:
+                print("Gate api exception, label: %s, message: %s\n" %
+                        (ex.label, ex.message))
+                break
+            except ApiException as e:
+                print("Exception when calling SpotApi->list_order_book: %s\n" % e)
+                break
+            except Exception as e:
+                print("Exception when calling SpotApi->list_order_book: %s\n" % e)
+                break
+
+    def update_order_status(self, ord_id, new_status):
+        filter = {"Type": "buy", "OrderId": ord_id}
+
                 # Values to be updated.
-        newvalues = { "$set": { 'Status': "1" } }
-        db.update_one("OrderBook", filter, newvalues)
+        newvalues = { "$set": { 'Status': new_status } }
+        self.db.update_one("OrderBook", filter, newvalues)
 
+    def update_order_id(self, id, ord_id):
+        filter = {"Type": "buy", "_id": id}
 
-    def spot_demo_order(self):
-        # type: (RunConfig) -> None
-        currency_pair = "TRX_USDT"
-        currency = currency_pair.split("_")[1]
-
-        # Initialize API client
-        # Setting host is optional. It defaults to https://api.gateio.ws/api/v4
-        config = Configuration(
-            key=self.run_config.api_key, secret=self.run_config.api_secret, host=self.run_config.host_used)
-        spot_api = SpotApi(ApiClient(config))
-        pair = spot_api.get_currency_pair(currency_pair)
-        logger.info("testing against currency pair: " + currency_pair)
-        min_quote_amount = pair.min_quote_amount
-        fee = D(pair.fee)
-        precision = D(pair.precision)
-
-        # get last price
-        tickers = spot_api.list_tickers(currency_pair=currency_pair)
-        assert len(tickers) == 1
-        last_price = D(tickers[0].last)
-        order_price = round(last_price - D(50/ math.pow(10, precision)), 5)
-        # make sure balance is enough
-        order_amount = math.ceil(D(min_quote_amount) / D(order_price) + 1)
-
-        # calculate total amount: value and fee
-        total_amount = order_amount * last_price * (1 + fee) 
-
-        accounts = spot_api.list_spot_accounts(currency=currency)
-        assert len(accounts) == 1
-        available = D(accounts[0].available)
-        logger.info("Account available: %s %s", str(available), currency)
-        if available < total_amount:
-            logger.error("Account balance not enough")
-            return
-
-        order = Order(amount=str(order_amount), price=str(order_price),
-                    side='buy', currency_pair=currency_pair)
-        logger.info("place a spot %s order in %s with amount %s and price %s", order.side, order.currency_pair,
-                    order.amount, order.price)
-
-        created = spot_api.create_order(order)
-        logger.info("order created with id %s, status %s",
-                    created.id, created.status)
-
-        if created.status == 'open':
-            order_result = spot_api.get_order(created.id, currency_pair)
-            logger.info("order %s filled %s, left: %s", order_result.id,
-                        order_result.filled_total, order_result.left)
-            result = spot_api.cancel_order(order_result.id, currency_pair)
-            if result.status == 'cancelled':
-                logger.info("order %s cancelled", result.id)
-        else:
-            trades = spot_api.list_my_trades(currency_pair, order_id=created.id)
-            assert len(trades) > 0
-            for t in trades:
-                logger.info("order %s filled %s with price %s",
-                            t.order_id, t.amount, t.price)
+                # Values to be updated.
+        newvalues = { "$set": { 'OrderId': ord_id, 'Status': "1" } }
+        self.db.update_one("OrderBook", filter, newvalues)
 
     # Get list currency supported by GateIO
-
-
     def get_list_currency(self):
-        # Initialize API client
-        # Setting host is optional. It defaults to https://api.gateio.ws/api/v4
-        config = Configuration(
-            key=self.run_config.api_key, secret=self.run_config.api_secret, host=self.run_config.host_used)
-
-        spot_api = SpotApi(ApiClient(config))
         try:
             # List all currency pairs supported
-            api_response = spot_api.list_currency_pairs()
+            api_response = self.spot_api.list_currency_pairs()
             print(api_response)
         except GateApiException as ex:
             print("Gate api exception, label: %s, message: %s\n" %
@@ -177,15 +145,9 @@ class GateOrder(object):
 
     # Get list ticker prices of  all currency pairs supported
     def list_tickers(self):
-        # Initialize API client
-        # Setting host is optional. It defaults to https://api.gateio.ws/api/v4
-        config = Configuration(
-            key=self.run_config.api_key, secret=self.run_config.api_secret, host=self.run_config.host_used)
-
-        spot_api = SpotApi(ApiClient(config))
         try:
             # List all currency pairs supported
-            api_response = spot_api.list_tickers()
+            api_response = self.spot_api.list_tickers()
             print(api_response)
         except GateApiException as ex:
             print("Gate api exception, label: %s, message: %s\n" %
@@ -194,47 +156,11 @@ class GateOrder(object):
             print("Exception when calling SpotApi->list_currency_pairs: %s\n" % e)
 
     def get_pair(self, currency_pair):
-        config = Configuration(
-            key=self.run_config.api_key, secret=self.run_config.api_secret, host=self.run_config.host_used)
-
-        spot_api = SpotApi(ApiClient(config))
-        pair = spot_api.get_currency_pair(currency_pair)
+        pair = self.spot_api.get_currency_pair(currency_pair)
 
         return pair
 
-    def list_order_book(self, currency_pair):
-        config = Configuration(
-            key=self.run_config.api_key, secret=self.run_config.api_secret, host=self.run_config.host_used)
-
-        spot_api = SpotApi(ApiClient(config))
-        # str | Order depth. 0 means no aggregation is applied. default to 0 (optional) (default to '0')
-        interval = '0'
-
-        # int | Maximum number of order depth data in asks or bids (optional) (default to 10)
-        limit = 10
-        # bool | Return order book ID (optional) (default to False)
-        with_id = False
-
-        try:
-            # Retrieve order book
-            orderBook = spot_api.list_order_book(
-                currency_pair, interval=interval, limit=limit, with_id=with_id)
-            print(orderBook.asks[0][0])
-
-            return orderBook
-        except GateApiException as ex:
-            print("Gate api exception, label: %s, message: %s\n" %
-                (ex.label, ex.message))
-        except ApiException as e:
-            print("Exception when calling SpotApi->list_order_book: %s\n" % e)
-
-
     def list_orders(self, currency_pair):
-        config = Configuration(
-            key=self.run_config.api_key, secret=self.run_config.api_secret, host=self.run_config.host_used)
-
-        spot_api = SpotApi(ApiClient(config))
-
         # int | Maximum number of order depth data in asks or bids (optional) (default to 10)
         limit = 10
 
@@ -258,7 +184,7 @@ class GateOrder(object):
 
         try:
             # List orders
-            orders = spot_api.list_orders(currency_pair, status)
+            orders = self.spot_api.list_orders(currency_pair, status)
 
             print(orders)
 
@@ -268,8 +194,6 @@ class GateOrder(object):
                 (ex.label, ex.message))
         except ApiException as e:
             print("Exception when calling SpotApi->list_order_book: %s\n" % e)
-
-
 
 if __name__ == '__main__':
     # init
@@ -286,6 +210,7 @@ if __name__ == '__main__':
     loop = asyncio.get_event_loop()
 
     loop.create_task(gate_order.create_order())
+    loop.create_task(gate_order.check_order_status())
 
     try:
         loop.run_forever()
